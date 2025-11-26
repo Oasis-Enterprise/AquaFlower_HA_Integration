@@ -1,0 +1,101 @@
+{
+    "config": {
+      "step": {
+        "user": {
+          "title": "AquaFlower Login",
+          "description": "Enter your AquaFlower account credentials to connect your smart irrigation devices to Home Assistant.",
+          "data": {
+            "username": "Email Address",
+            "password": "Password",
+            "ha_ip": "Home Assistant IP Address"
+          },
+          "data_description": {
+            "username": "The email address you use to log into the AquaFlower app",
+            "password": "Your AquaFlower account password",
+            "ha_ip": "Your Home Assistant's IP address (for webhook callbacks)"
+          }
+        },
+        "select_devices": {
+          "title": "Select Devices",
+          "description": "Choose which AquaFlower irrigation controllers you want to add to Home Assistant. Each device will be set up with 6 zone controls and daily runtime sensors.",
+          "data": {
+            "devices": "Devices"
+          }
+        },
+        "confirm_devices": {
+          "title": "Confirm Devices",
+          "description": "Confirm your selected devices and complete the setup. Real-time updates will be enabled via webhook."
+        }
+      },
+      "error": {
+        "invalid_auth": "Invalid email or password. Please verify your AquaFlower account credentials and try again.",
+        "cannot_connect": "Failed to connect to the AquaFlower service. Please check your network connection or server status.",
+        "cannot_fetch_devices": "Unable to retrieve your devices. Please verify your account has registered devices and try again.",
+        "cannot_register_webhook": "Unable to register webhook with AquaFlower service. Real-time updates may not work. Please check your network and try again."
+      },
+      "abort": {
+        "already_configured": "This AquaFlower account is already configured in Home Assistant.",
+        "no_devices_found": "No AquaFlower devices were found for this account. Please register a device in the AquaFlower app first.",
+        "no_devices_selected": "No devices were selected to configure. Please select at least one device."
+      }
+    },
+    "options": {
+      "step": {
+        "init": {
+          "title": "AquaFlower Options",
+          "description": "Adjust settings for your AquaFlower integration. Changes will apply to all configured devices."
+        }
+      }
+    },
+    "device_automation": {
+      "action_type": {
+        "turn_on_valve": "Turn on irrigation zone",
+        "turn_off_valve": "Turn off irrigation zone",
+        "start_timer": "Start zone timer",
+        "cancel_timer": "Cancel zone timer"
+      },
+      "trigger_type": {
+        "zone_turned_on": "Zone turned on",
+        "zone_turned_off": "Zone turned off",
+        "timer_started": "Timer started",
+        "timer_finished": "Timer finished"
+      }
+    },
+    "entity": {
+      "switch": {
+        "zone": {
+          "name": "Zone {zone_number}"
+        }
+      },
+      "sensor": {
+        "daily_on_time": {
+          "name": "Zone {zone_number} Daily On Time"
+        },
+        "schedule": {
+          "name": "{schedule_name}"
+        }
+      },
+      "number": {
+        "zone_timer": {
+          "name": "Zone {zone_number} Timer"
+        }
+      }
+    },
+    "services": {
+      "set_zone_timer": {
+        "name": "Set Zone Timer",
+        "description": "Set a timer for a specific irrigation zone",
+        "fields": {
+          "entity_id": {
+            "name": "Zone",
+            "description": "The irrigation zone to control"
+          },
+          "duration": {
+            "name": "Duration",
+            "description": "Timer duration in minutes"
+          }
+        }
+      }
+    }
+  }
+  
