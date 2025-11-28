@@ -264,16 +264,57 @@ class AquaFlowerCard extends HTMLElement {
           margin: 8px 0;
           background: var(--secondary-background-color);
           border-radius: 8px;
-          border-left: 4px solid var(--primary-color);
+          border-left: 4px solid var(--success-color, #4caf50);
+        }
+        .schedule-item.inactive {
+          border-left-color: var(--disabled-color, #9e9e9e);
+          opacity: 0.7;
+        }
+        .schedule-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 6px;
         }
         .schedule-name {
           font-weight: 600;
           color: var(--primary-text-color);
-          margin-bottom: 4px;
+        }
+        .schedule-status {
+          font-size: 11px;
+          font-weight: 500;
+          padding: 2px 8px;
+          border-radius: 10px;
+          text-transform: uppercase;
+        }
+        .schedule-status.active {
+          background: var(--success-color, #4caf50);
+          color: white;
+        }
+        .schedule-status.inactive {
+          background: var(--disabled-color, #9e9e9e);
+          color: white;
         }
         .schedule-details {
+          font-size: 13px;
+          color: var(--primary-text-color);
+          margin-bottom: 4px;
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+        .schedule-time {
+          font-weight: 500;
+        }
+        .schedule-rain {
+          color: var(--info-color, #2196f3);
+        }
+        .schedule-meta {
           font-size: 12px;
           color: var(--secondary-text-color);
+          display: flex;
+          gap: 12px;
+          flex-wrap: wrap;
         }
         .no-schedules {
           text-align: center;
@@ -371,23 +412,103 @@ class AquaFlowerCard extends HTMLElement {
     const devicePrefix = this._config.device || this.getDevicePrefixFromEntity(this._config.entity);
     if (!devicePrefix) return [];
 
+    // Get the device_id from one of the zone switches to find related schedules
+    const zone1Entity = this.findZoneEntity(devicePrefix, 1, 'switch');
+    if (!zone1Entity) return [];
+
+    const zone1State = this._hass.states[zone1Entity];
+    if (!zone1State) return [];
+
+    // Find all sensors that:
+    // 1. Are NOT zone on-time sensors (don't match pattern *_zone_*_daily_on_time or *_zone_*_timer)
+    // 2. Have schedule-like attributes (Is active, Start time, Duration, Zones, Days)
     return Object.keys(this._hass.states)
-      .filter(entityId => entityId.startsWith('sensor.') && entityId.includes(devicePrefix) && entityId.includes('schedule'))
+      .filter(entityId => {
+        if (!entityId.startsWith('sensor.')) return false;
+
+        // Exclude zone on-time and timer sensors
+        if (/_zone_\d+_(daily_on_time|timer)$/.test(entityId)) return false;
+        if (entityId.includes(devicePrefix) && entityId.includes('zone')) return false;
+
+        const state = this._hass.states[entityId];
+        if (!state || !state.attributes) return false;
+
+        // Check if this sensor has schedule attributes
+        const attrs = state.attributes;
+        const hasScheduleAttrs = (
+          attrs.hasOwnProperty('is_active') ||
+          attrs.hasOwnProperty('IsActive') ||
+          attrs.hasOwnProperty('start_time') ||
+          attrs.hasOwnProperty('StartTime') ||
+          attrs.hasOwnProperty('duration') ||
+          attrs.hasOwnProperty('Duration')
+        );
+
+        if (!hasScheduleAttrs) return false;
+
+        // Check if this schedule belongs to the same device by DeviceId attribute
+        const scheduleDeviceId = attrs.DeviceId || attrs.device_id;
+        const zone1DeviceId = zone1State.attributes?.device_id;
+
+        // If we can match by device ID, use that
+        if (scheduleDeviceId && zone1DeviceId) {
+          return scheduleDeviceId === zone1DeviceId;
+        }
+
+        // Otherwise include any sensor with schedule attributes (user can filter later)
+        return hasScheduleAttrs;
+      })
       .map(entityId => this._hass.states[entityId]);
   }
 
   renderScheduleItem(entity) {
     const attrs = entity.attributes;
-    const zones = attrs.zones ? `Zones: ${attrs.zones.join(', ')}` : '';
-    const days = attrs.days ? `Days: ${attrs.days.join(', ')}` : '';
-    const time = attrs.start_time ? `Time: ${attrs.start_time}` : '';
-    const duration = attrs.duration ? `Duration: ${attrs.duration} min` : '';
-    const active = attrs.is_active ? '✓ Active' : '✗ Inactive';
-    
+
+    // Handle both snake_case and PascalCase attribute names
+    const zonesArr = attrs.zones || attrs.Zones;
+    const daysArr = attrs.days || attrs.Days;
+    const startTime = attrs.start_time || attrs.StartTime || attrs['Start time'];
+    const duration = attrs.duration || attrs.Duration;
+    const isActive = attrs.is_active ?? attrs.IsActive ?? attrs['Is active'];
+    const rainMode = attrs.rain_mode ?? attrs.RainMode ?? attrs['Rain mode'];
+    const name = attrs.Name || attrs.friendly_name || entity.state;
+
+    // Format zones (convert to readable format)
+    const zonesText = zonesArr ? `Zones: ${Array.isArray(zonesArr) ? zonesArr.join(', ') : zonesArr}` : '';
+
+    // Format days (convert numbers to day names if needed)
+    const dayNames = ['', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    let daysText = '';
+    if (daysArr) {
+      if (Array.isArray(daysArr)) {
+        const daysList = daysArr.map(d => dayNames[d] || d).join(', ');
+        daysText = daysArr.length === 7 ? 'Every day' : daysList;
+      } else {
+        daysText = daysArr;
+      }
+    }
+
+    const timeText = startTime ? `${startTime}` : '';
+    const durationText = duration ? `${duration} min` : '';
+    const activeText = isActive ? 'Active' : 'Inactive';
+    const activeClass = isActive ? 'active' : 'inactive';
+    const rainIcon = rainMode ? ' · Rain skip on' : '';
+
     return `
-      <div class="schedule-item">
-        <div class="schedule-name">${entity.state} ${active}</div>
-        <div class="schedule-details">${[zones, days, time, duration].filter(x => x).join(' • ')}</div>
+      <div class="schedule-item ${activeClass}">
+        <div class="schedule-header">
+          <span class="schedule-name">${name}</span>
+          <span class="schedule-status ${activeClass}">${activeText}</span>
+        </div>
+        <div class="schedule-details">
+          ${timeText ? `<span class="schedule-time">${timeText}</span>` : ''}
+          ${durationText ? `<span class="schedule-duration">${durationText}</span>` : ''}
+          ${rainIcon ? `<span class="schedule-rain">${rainIcon}</span>` : ''}
+        </div>
+        <div class="schedule-meta">
+          ${zonesText ? `<span>${zonesText}</span>` : ''}
+          ${daysText ? `<span>${daysText}</span>` : ''}
+        </div>
       </div>
     `;
   }
