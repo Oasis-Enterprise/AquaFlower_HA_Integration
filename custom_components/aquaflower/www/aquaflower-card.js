@@ -356,7 +356,10 @@ class AquaFlowerCard extends HTMLElement {
 
     const schedulesHeader = this.shadowRoot.querySelector('.schedules-header');
     if (schedulesHeader) {
-      schedulesHeader.addEventListener('click', () => this.toggleSchedules());
+      schedulesHeader.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.toggleSchedules();
+      });
     }
   }
 
@@ -759,6 +762,10 @@ class AquaFlowerCardEditor extends HTMLElement {
     const deviceSelect = this.shadowRoot.getElementById('device-select');
     if (deviceSelect) {
       deviceSelect.addEventListener('change', (e) => this._deviceChanged(e));
+      // Prevent click from bubbling up and closing the dialog
+      deviceSelect.addEventListener('click', (e) => e.stopPropagation());
+      deviceSelect.addEventListener('mousedown', (e) => e.stopPropagation());
+      deviceSelect.addEventListener('pointerdown', (e) => e.stopPropagation());
     }
 
     const schedulesToggle = this.shadowRoot.getElementById('show-schedules');
