@@ -28,31 +28,32 @@ class AquaFlowerCardEditor extends HTMLElement {
   getAquaFlowerDevices() {
     if (!this._hass) return [];
 
-    // Find all zone_1 switches to identify unique devices
-    // Pattern: switch.{device_name}_zone_1
-    const zone1Entities = Object.keys(this._hass.states)
-      .filter(entityId => {
-        return entityId.startsWith('switch.') && entityId.endsWith('_zone_1');
+    // Find all switch entities that end with _zone_1, _zone_2, etc.
+    // and group them by device
+    const zonePattern = /_zone_[1-6]$/;
+    const deviceMap = new Map();
+
+    Object.keys(this._hass.states)
+      .filter(entityId => entityId.startsWith('switch.') && zonePattern.test(entityId))
+      .forEach(entityId => {
+        // Extract device prefix: switch.front_yard_zone_1 -> front_yard
+        const devicePrefix = entityId.replace('switch.', '').replace(/_zone_[1-6]$/, '');
+
+        if (!deviceMap.has(devicePrefix)) {
+          const state = this._hass.states[entityId];
+          // Get friendly name and remove "Zone X" suffix
+          let friendlyName = state?.attributes?.friendly_name || devicePrefix;
+          friendlyName = friendlyName.replace(/\s*[-_]?\s*[Zz]one\s*\d+$/i, '').trim();
+
+          deviceMap.set(devicePrefix, {
+            id: devicePrefix,
+            entityId: entityId,
+            friendlyName: friendlyName || devicePrefix,
+          });
+        }
       });
 
-    // Extract device names and build device list
-    const devices = zone1Entities.map(entityId => {
-      // Remove "switch." prefix and "_zone_1" suffix to get device name
-      const deviceName = entityId.replace('switch.', '').replace('_zone_1', '');
-      const state = this._hass.states[entityId];
-
-      // Get friendly name and remove " Zone 1" suffix if present
-      let friendlyName = state?.attributes?.friendly_name || deviceName;
-      friendlyName = friendlyName.replace(/\s*[-_]?\s*[Zz]one\s*1$/i, '').trim();
-
-      return {
-        id: deviceName,
-        entityId: entityId,
-        friendlyName: friendlyName || deviceName,
-      };
-    });
-
-    return devices;
+    return Array.from(deviceMap.values());
   }
 
   render() {

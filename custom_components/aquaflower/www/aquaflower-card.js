@@ -24,33 +24,66 @@ class AquaFlowerCard extends HTMLElement {
   updateZones() {
     if (!this._hass || !this._config) return;
 
-    // Get device name from config (or extract from entity for backwards compatibility)
-    const deviceName = this._config.device || this.getDeviceNameFromEntity(this._config.entity);
-    if (!deviceName) return;
+    // Get device prefix from config (or extract from entity for backwards compatibility)
+    const devicePrefix = this._config.device || this.getDevicePrefixFromEntity(this._config.entity);
+    if (!devicePrefix) return;
 
     this._zones = [];
     for (let i = 1; i <= 6; i++) {
-      const switchEntity = `switch.${deviceName}_zone_${i}`;
-      const sensorEntity = `sensor.${deviceName}_zone_${i}_on_time`;
+      // Find switch entity for this zone
+      const switchEntity = this.findZoneEntity(devicePrefix, i, 'switch');
+      // Find sensor entity for daily on time
+      const sensorEntity = this.findOnTimeSensor(devicePrefix, i);
 
-      const switchState = this._hass.states[switchEntity];
-      const sensorState = this._hass.states[sensorEntity];
+      const switchState = switchEntity ? this._hass.states[switchEntity] : null;
+      const sensorState = sensorEntity ? this._hass.states[sensorEntity] : null;
 
       this._zones.push({
         number: i,
-        switchEntity: switchState ? switchEntity : null,
-        sensorEntity: sensorState ? sensorEntity : null,
+        switchEntity: switchEntity,
+        sensorEntity: sensorEntity,
         state: switchState ? switchState.state : 'unavailable',
         onTime: sensorState ? sensorState.state : '0',
       });
     }
   }
 
-  getDeviceNameFromEntity(entityId) {
+  getDevicePrefixFromEntity(entityId) {
     if (!entityId) return null;
-    // Extract device name from entity like "switch.aquaflower_zone_1" -> "aquaflower"
+    // Extract device prefix from entity like "switch.front_yard_zone_1" -> "front_yard"
     const match = entityId.match(/^switch\.(.+)_zone_\d+$/);
     return match ? match[1] : null;
+  }
+
+  findZoneEntity(devicePrefix, zoneNumber, domain) {
+    // Try exact match first: switch.front_yard_zone_1
+    const exactMatch = `${domain}.${devicePrefix}_zone_${zoneNumber}`;
+    if (this._hass.states[exactMatch]) {
+      return exactMatch;
+    }
+    // Fallback: search for entity containing device prefix and zone number
+    const pattern = new RegExp(`^${domain}\\..*${devicePrefix}.*zone.*${zoneNumber}$`, 'i');
+    const found = Object.keys(this._hass.states).find(id => pattern.test(id));
+    return found || null;
+  }
+
+  findOnTimeSensor(devicePrefix, zoneNumber) {
+    // Look for daily on time sensor: sensor.front_yard_zone_1_daily_on_time
+    const patterns = [
+      `sensor.${devicePrefix}_zone_${zoneNumber}_daily_on_time`,
+      `sensor.${devicePrefix}_zone_${zoneNumber}_on_time`,
+    ];
+
+    for (const pattern of patterns) {
+      if (this._hass.states[pattern]) {
+        return pattern;
+      }
+    }
+
+    // Fallback: search for any matching sensor
+    const regex = new RegExp(`^sensor\\..*${devicePrefix}.*zone.*${zoneNumber}.*on.?time`, 'i');
+    const found = Object.keys(this._hass.states).find(id => regex.test(id));
+    return found || null;
   }
 
   toggleZone(zoneNumber) {
@@ -335,11 +368,11 @@ class AquaFlowerCard extends HTMLElement {
   getScheduleEntities() {
     if (!this._hass || !this._config) return [];
 
-    const deviceName = this._config.device || this.getDeviceNameFromEntity(this._config.entity);
-    if (!deviceName) return [];
+    const devicePrefix = this._config.device || this.getDevicePrefixFromEntity(this._config.entity);
+    if (!devicePrefix) return [];
 
     return Object.keys(this._hass.states)
-      .filter(entityId => entityId.startsWith('sensor.') && entityId.includes(deviceName) && entityId.includes('schedule'))
+      .filter(entityId => entityId.startsWith('sensor.') && entityId.includes(devicePrefix) && entityId.includes('schedule'))
       .map(entityId => this._hass.states[entityId]);
   }
 
@@ -375,18 +408,20 @@ class AquaFlowerCard extends HTMLElement {
   getDeviceName() {
     if (!this._config || !this._hass) return 'AquaFlower';
 
-    // Get device name from config
-    const deviceName = this._config.device || this.getDeviceNameFromEntity(this._config.entity);
-    if (!deviceName) return 'AquaFlower';
+    // Get device prefix from config
+    const devicePrefix = this._config.device || this.getDevicePrefixFromEntity(this._config.entity);
+    if (!devicePrefix) return 'AquaFlower';
 
     // Try to get friendly name from zone_1 entity
-    const zone1Entity = `switch.${deviceName}_zone_1`;
+    const zone1Entity = this.findZoneEntity(devicePrefix, 1, 'switch');
+    if (!zone1Entity) return devicePrefix.replace(/_/g, ' ');
+
     const state = this._hass.states[zone1Entity];
-    if (!state) return deviceName;
+    if (!state) return devicePrefix.replace(/_/g, ' ');
 
     // Get friendly name and remove "Zone 1" suffix
-    const friendlyName = state.attributes.friendly_name || deviceName;
-    return friendlyName.replace(/\s*[-_]?\s*[Zz]one\s*\d+$/i, '').trim() || deviceName;
+    const friendlyName = state.attributes.friendly_name || devicePrefix;
+    return friendlyName.replace(/\s*[-_]?\s*[Zz]one\s*\d+$/i, '').trim() || devicePrefix.replace(/_/g, ' ');
   }
 
   getCardSize() {
