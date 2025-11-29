@@ -63,16 +63,24 @@ class AquaFlowerCard extends HTMLElement {
       const switchEntity = this.findZoneEntity(devicePrefix, i, 'switch');
       // Find sensor entity for daily on time
       const sensorEntity = this.findOnTimeSensor(devicePrefix, i);
+      // Find timer entity
+      const timerEntity = this.findTimerEntity(devicePrefix, i);
 
       const switchState = switchEntity ? this._hass.states[switchEntity] : null;
       const sensorState = sensorEntity ? this._hass.states[sensorEntity] : null;
+      const timerState = timerEntity ? this._hass.states[timerEntity] : null;
 
       this._zones.push({
         number: i,
         switchEntity: switchEntity,
         sensorEntity: sensorEntity,
+        timerEntity: timerEntity,
         state: switchState ? switchState.state : 'unavailable',
         onTime: sensorState ? sensorState.state : '0',
+        timer: timerState ? parseFloat(timerState.state) : 0,
+        timerMin: timerState?.attributes?.min || 0,
+        timerMax: timerState?.attributes?.max || 60,
+        timerStep: timerState?.attributes?.step || 1,
       });
     }
   }
@@ -115,6 +123,19 @@ class AquaFlowerCard extends HTMLElement {
     return found || null;
   }
 
+  findTimerEntity(devicePrefix, zoneNumber) {
+    // Look for timer entity: number.front_yard_zone_1_timer
+    const exactMatch = `number.${devicePrefix}_zone_${zoneNumber}_timer`;
+    if (this._hass.states[exactMatch]) {
+      return exactMatch;
+    }
+
+    // Fallback: search for any matching number entity
+    const regex = new RegExp(`^number\\..*${devicePrefix}.*zone.*${zoneNumber}.*timer`, 'i');
+    const found = Object.keys(this._hass.states).find(id => regex.test(id));
+    return found || null;
+  }
+
   toggleZone(zoneNumber) {
     const zone = this._zones[zoneNumber - 1];
     if (!zone || !zone.switchEntity) return;
@@ -122,6 +143,17 @@ class AquaFlowerCard extends HTMLElement {
     const service = zone.state === 'on' ? 'turn_off' : 'turn_on';
     this._hass.callService('switch', service, {
       entity_id: zone.switchEntity,
+    });
+  }
+
+  adjustTimer(zoneNumber, delta) {
+    const zone = this._zones[zoneNumber - 1];
+    if (!zone || !zone.timerEntity) return;
+
+    const newValue = Math.min(Math.max(zone.timer + delta, zone.timerMin), zone.timerMax);
+    this._hass.callService('number', 'set_value', {
+      entity_id: zone.timerEntity,
+      value: newValue,
     });
   }
 
@@ -295,6 +327,50 @@ class AquaFlowerCard extends HTMLElement {
         .zone-card.off .zone-status {
           color: var(--disabled-text-color);
         }
+        .zone-timer {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          margin: 8px 0;
+          padding: 6px;
+          background: var(--secondary-background-color, rgba(0,0,0,0.05));
+          border-radius: 8px;
+        }
+        .timer-btn {
+          width: 28px;
+          height: 28px;
+          border: none;
+          border-radius: 50%;
+          background: var(--primary-color, #03a9f4);
+          color: white;
+          font-size: 18px;
+          font-weight: bold;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: all 0.2s ease;
+          line-height: 1;
+        }
+        .timer-btn:hover {
+          transform: scale(1.1);
+          background: var(--primary-color, #0288d1);
+        }
+        .timer-btn:active {
+          transform: scale(0.95);
+        }
+        .timer-value {
+          font-size: 18px;
+          font-weight: 600;
+          color: var(--primary-text-color);
+          min-width: 24px;
+          text-align: center;
+        }
+        .timer-unit {
+          font-size: 12px;
+          color: var(--secondary-text-color);
+        }
         .zone-time {
           font-size: 12px;
           color: var(--secondary-text-color);
@@ -439,10 +515,24 @@ class AquaFlowerCard extends HTMLElement {
       const card = this.shadowRoot.querySelector(`.zone-card[data-zone="${index + 1}"]`);
       if (card && zone.state !== 'unavailable') {
         card.addEventListener('click', (e) => {
+          // Don't toggle if clicking on timer buttons
+          if (e.target.closest('.timer-btn') || e.target.closest('.zone-timer')) {
+            return;
+          }
           e.stopPropagation();
           this.toggleZone(index + 1);
         });
       }
+    });
+
+    // Add timer button event listeners
+    this.shadowRoot.querySelectorAll('.timer-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const zoneNumber = parseInt(btn.dataset.zone);
+        const delta = parseInt(btn.dataset.delta);
+        this.adjustTimer(zoneNumber, delta);
+      });
     });
 
     const schedulesHeader = this.shadowRoot.querySelector('.schedules-header');
@@ -457,7 +547,8 @@ class AquaFlowerCard extends HTMLElement {
   renderZone(zone) {
     const stateClass = zone.state === 'on' ? 'on' : zone.state === 'off' ? 'off' : 'unavailable';
     const statusText = zone.state === 'on' ? 'Running' : zone.state === 'off' ? 'Off' : 'Unavailable';
-    
+    const showTimer = this._config.show_timer !== false && zone.timerEntity !== null;
+
     return `
       <div class="zone-card ${stateClass}" data-zone="${zone.number}">
         <div class="zone-header">
@@ -467,6 +558,14 @@ class AquaFlowerCard extends HTMLElement {
           </svg>
         </div>
         <div class="zone-status">${statusText}</div>
+        ${showTimer ? `
+        <div class="zone-timer" data-zone="${zone.number}">
+          <button class="timer-btn minus" data-zone="${zone.number}" data-delta="-1">−</button>
+          <span class="timer-value">${Math.round(zone.timer)}</span>
+          <span class="timer-unit">min</span>
+          <button class="timer-btn plus" data-zone="${zone.number}" data-delta="1">+</button>
+        </div>
+        ` : ''}
         <div class="zone-time">
           <svg class="time-icon" viewBox="0 0 24 24">
             <path fill="currentColor" d="M12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22C6.47,22 2,17.5 2,12A10,10 0 0,1 12,2M12.5,7V12.25L17,14.92L16.25,16.15L11,13V7H12.5Z" />
@@ -651,6 +750,7 @@ class AquaFlowerCard extends HTMLElement {
   static getStubConfig() {
     return {
       device: "",
+      show_timer: true,
       show_schedules: true
     };
   }
@@ -729,6 +829,7 @@ class AquaFlowerCardEditor extends HTMLElement {
 
     const devices = this.getAquaFlowerDevices();
     const selectedDevice = this._config.device || '';
+    const showTimer = this._config.show_timer !== false;
     const showSchedules = this._config.show_schedules !== false;
 
     this.shadowRoot.innerHTML = `
@@ -847,6 +948,19 @@ class AquaFlowerCardEditor extends HTMLElement {
           <div class="config-row">
             <div class="toggle-row">
               <div>
+                <label>Show Timer</label>
+                <div class="description">Display timer controls on each zone</div>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="show-timer" ${showTimer ? 'checked' : ''}>
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="config-row">
+            <div class="toggle-row">
+              <div>
                 <label>Show Schedules</label>
                 <div class="description">Display irrigation schedules section</div>
               </div>
@@ -872,6 +986,11 @@ class AquaFlowerCardEditor extends HTMLElement {
       });
     }
 
+    const timerToggle = this.shadowRoot.getElementById('show-timer');
+    if (timerToggle) {
+      timerToggle.addEventListener('change', (e) => this._timerToggled(e));
+    }
+
     const schedulesToggle = this.shadowRoot.getElementById('show-schedules');
     if (schedulesToggle) {
       schedulesToggle.addEventListener('change', (e) => this._schedulesToggled(e));
@@ -882,6 +1001,14 @@ class AquaFlowerCardEditor extends HTMLElement {
     if (configDiv) {
       configDiv.addEventListener('click', (e) => e.stopPropagation());
     }
+  }
+
+  _timerToggled(e) {
+    this._config = {
+      ...this._config,
+      show_timer: e.target.checked
+    };
+    this.configChanged(this._config);
   }
 
   _deviceChanged(e) {
