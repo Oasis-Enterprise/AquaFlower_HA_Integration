@@ -4,16 +4,23 @@ class AquaFlowerCardEditor extends HTMLElement {
     this.attachShadow({ mode: 'open' });
     this._hass = null;
     this._config = {};
+    this._rendered = false;
   }
 
   setConfig(config) {
     this._config = config;
-    this.render();
+    if (this._hass && !this._rendered) {
+      this.render();
+      this._rendered = true;
+    }
   }
 
   set hass(hass) {
     this._hass = hass;
-    this.render();
+    if (!this._rendered) {
+      this.render();
+      this._rendered = true;
+    }
   }
 
   configChanged(newConfig) {

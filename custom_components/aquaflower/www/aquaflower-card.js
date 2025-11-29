@@ -38,6 +38,14 @@ class AquaFlowerCard extends HTMLElement {
 
       if (oldState?.state !== newState?.state) return true;
       if (oldState?.last_changed !== newState?.last_changed) return true;
+
+      // Check sensor (on time)
+      const sensorEntity = this.findOnTimeSensor(devicePrefix, i);
+      if (sensorEntity) {
+        const oldSensor = oldHass.states[sensorEntity];
+        const newSensor = newHass.states[sensorEntity];
+        if (oldSensor?.state !== newSensor?.state) return true;
+      }
     }
     return false;
   }
@@ -117,8 +125,67 @@ class AquaFlowerCard extends HTMLElement {
     });
   }
 
+  updateDOM() {
+    // Efficiently update DOM without re-rendering everything
+    this._zones.forEach(zone => {
+      const card = this.shadowRoot.querySelector(`.zone-card[data-zone="${zone.number}"]`);
+      if (card) {
+        // Update classes
+        card.classList.remove('on', 'off', 'unavailable');
+        if (zone.state === 'on' || zone.state === 'off') {
+          card.classList.add(zone.state);
+        } else {
+          card.classList.add('unavailable');
+        }
+
+        // Update status text
+        const statusDiv = card.querySelector('.zone-status');
+        if (statusDiv) {
+          statusDiv.textContent = zone.state === 'on' ? 'Running' : zone.state === 'off' ? 'Off' : 'Unavailable';
+        }
+
+        // Update icon
+        const iconPath = card.querySelector('.zone-icon path');
+        if (iconPath) {
+          const onPath = 'M19,14C19,15.78 18.23,17.36 17,18.42V20A1,1 0 0,1 16,21H8A1,1 0 0,1 7,20V18.42C5.77,17.36 5,15.78 5,14C5,11.34 7.45,9.45 10.5,8.55V6A1.5,1.5 0 0,1 12,4.5A1.5,1.5 0 0,1 13.5,6V8.55C16.55,9.45 19,11.34 19,14M16,14C16,11.5 13.5,10 12,10C10.5,10 8,11.5 8,14C8,15.71 9.29,17 11,17V18H13V17C14.71,17 16,15.71 16,14Z';
+          const offPath = 'M12,4.5A1.5,1.5 0 0,1 13.5,6V8.5A1.5,1.5 0 0,1 12,10A1.5,1.5 0 0,1 10.5,8.5V6A1.5,1.5 0 0,1 12,4.5M17,14C17,16.22 15.46,18.11 13.35,18.73L14.35,20.86L12.71,21.5L11.71,19.37C11.47,19.39 11.24,19.4 11,19.4V21.5H9V19.4C6.17,19.21 4,16.88 4,14C4,11.86 5.28,10.06 7.14,9.14L6.14,7L7.78,6.36L8.78,8.5C9.47,8.33 10.22,8.24 11,8.24V6.12H13V8.24C15.83,8.43 18,10.76 18,13.9L17,14Z';
+          iconPath.setAttribute('d', zone.state === 'on' ? onPath : offPath);
+        }
+
+        // Update time
+        const timeDiv = card.querySelector('.zone-time');
+        if (timeDiv) {
+          // preserve icon
+          const icon = timeDiv.querySelector('svg').outerHTML;
+          timeDiv.innerHTML = `${icon} Today: ${zone.onTime} min`;
+        }
+      }
+    });
+
+    // Update schedules content if needed
+    if (this._config.show_schedules !== false) {
+      const container = this.shadowRoot.querySelector('.schedules-content');
+      if (container) {
+        const scheduleEntities = this.getScheduleEntities();
+        const html = scheduleEntities.length > 0 
+          ? scheduleEntities.map(entity => this.renderScheduleItem(entity)).join('') 
+          : '<div class="no-schedules">No schedules configured. Manage schedules in the AquaFlower app.</div>';
+        
+        if (container.innerHTML !== html) {
+          container.innerHTML = html;
+        }
+      }
+    }
+  }
+
   render() {
     if (!this._hass || !this._config) return;
+
+    // Optimized rendering: if structure exists, update values only
+    if (this.shadowRoot.querySelector('.zones-grid')) {
+      this.updateDOM();
+      return;
+    }
 
     const deviceName = this.getDeviceName();
 
@@ -371,7 +438,10 @@ class AquaFlowerCard extends HTMLElement {
     this._zones.forEach((zone, index) => {
       const card = this.shadowRoot.querySelector(`.zone-card[data-zone="${index + 1}"]`);
       if (card && zone.state !== 'unavailable') {
-        card.addEventListener('click', () => this.toggleZone(index + 1));
+        card.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.toggleZone(index + 1);
+        });
       }
     });
 
