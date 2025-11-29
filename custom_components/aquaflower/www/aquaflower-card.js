@@ -5,6 +5,7 @@ class AquaFlowerCard extends HTMLElement {
     this._hass = null;
     this._config = null;
     this._zones = [];
+    this._schedulesExpanded = false;
   }
 
   setConfig(config) {
@@ -16,9 +17,29 @@ class AquaFlowerCard extends HTMLElement {
   }
 
   set hass(hass) {
+    const oldHass = this._hass;
     this._hass = hass;
-    this.updateZones();
-    this.render();
+
+    // Only re-render if zone states actually changed
+    if (!oldHass || this._zonesChanged(oldHass, hass)) {
+      this.updateZones();
+      this.render();
+    }
+  }
+
+  _zonesChanged(oldHass, newHass) {
+    const devicePrefix = this._config?.device || this.getDevicePrefixFromEntity(this._config?.entity);
+    if (!devicePrefix) return true;
+
+    for (let i = 1; i <= 6; i++) {
+      const entityId = `switch.${devicePrefix}_zone_${i}`;
+      const oldState = oldHass.states[entityId];
+      const newState = newHass.states[entityId];
+
+      if (oldState?.state !== newState?.state) return true;
+      if (oldState?.last_changed !== newState?.last_changed) return true;
+    }
+    return false;
   }
 
   updateZones() {
@@ -398,11 +419,11 @@ class AquaFlowerCard extends HTMLElement {
             </svg>
             Schedules (${scheduleEntities.length})
           </div>
-          <svg class="chevron" viewBox="0 0 24 24">
+          <svg class="chevron ${this._schedulesExpanded ? 'expanded' : ''}" viewBox="0 0 24 24">
             <path fill="currentColor" d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z" />
           </svg>
         </div>
-        <div class="schedules-content">
+        <div class="schedules-content ${this._schedulesExpanded ? 'expanded' : ''}">
           ${scheduleEntities.length > 0 ? scheduleEntities.map(entity => this.renderScheduleItem(entity)).join('') : '<div class="no-schedules">No schedules configured. Manage schedules in the AquaFlower app.</div>'}
         </div>
       </div>
@@ -517,15 +538,16 @@ class AquaFlowerCard extends HTMLElement {
   }
 
   toggleSchedules() {
+    this._schedulesExpanded = !this._schedulesExpanded;
     const content = this.shadowRoot.querySelector('.schedules-content');
     const chevron = this.shadowRoot.querySelector('.chevron');
-    
-    if (content.classList.contains('expanded')) {
-      content.classList.remove('expanded');
-      chevron.classList.remove('expanded');
-    } else {
+
+    if (this._schedulesExpanded) {
       content.classList.add('expanded');
       chevron.classList.add('expanded');
+    } else {
+      content.classList.remove('expanded');
+      chevron.classList.remove('expanded');
     }
   }
 
@@ -575,16 +597,21 @@ class AquaFlowerCardEditor extends HTMLElement {
     this.attachShadow({ mode: 'open' });
     this._hass = null;
     this._config = {};
+    this._rendered = false;
   }
 
   setConfig(config) {
     this._config = config;
-    this.render();
+    if (this._hass) this.render();
   }
 
   set hass(hass) {
     this._hass = hass;
-    this.render();
+    // Only render once initially, then just update values
+    if (!this._rendered) {
+      this.render();
+      this._rendered = true;
+    }
   }
 
   configChanged(newConfig) {
@@ -660,12 +687,17 @@ class AquaFlowerCardEditor extends HTMLElement {
           border-radius: 8px;
           background: var(--card-background-color, #fff);
           color: var(--primary-text-color, #000);
-          font-size: 14px;
+          font-size: 16px;
           cursor: pointer;
+          -webkit-appearance: menulist;
+          appearance: menulist;
         }
         select:focus {
           outline: none;
           border-color: var(--primary-color, #03a9f4);
+        }
+        select:active {
+          outline: none;
         }
         .toggle-row {
           display: flex;
@@ -762,15 +794,23 @@ class AquaFlowerCardEditor extends HTMLElement {
     const deviceSelect = this.shadowRoot.getElementById('device-select');
     if (deviceSelect) {
       deviceSelect.addEventListener('change', (e) => this._deviceChanged(e));
-      // Prevent click from bubbling up and closing the dialog
-      deviceSelect.addEventListener('click', (e) => e.stopPropagation());
-      deviceSelect.addEventListener('mousedown', (e) => e.stopPropagation());
-      deviceSelect.addEventListener('pointerdown', (e) => e.stopPropagation());
+      // Prevent events from bubbling up and closing the dialog
+      ['click', 'mousedown', 'pointerdown', 'touchstart', 'focus'].forEach(eventType => {
+        deviceSelect.addEventListener(eventType, (e) => {
+          e.stopPropagation();
+        }, true);
+      });
     }
 
     const schedulesToggle = this.shadowRoot.getElementById('show-schedules');
     if (schedulesToggle) {
       schedulesToggle.addEventListener('change', (e) => this._schedulesToggled(e));
+    }
+
+    // Stop propagation on the entire config div
+    const configDiv = this.shadowRoot.querySelector('.card-config');
+    if (configDiv) {
+      configDiv.addEventListener('click', (e) => e.stopPropagation());
     }
   }
 
