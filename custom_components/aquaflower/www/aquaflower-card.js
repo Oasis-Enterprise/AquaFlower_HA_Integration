@@ -46,6 +46,14 @@ class AquaFlowerCard extends HTMLElement {
         const newSensor = newHass.states[sensorEntity];
         if (oldSensor?.state !== newSensor?.state) return true;
       }
+
+      // Check timer
+      const timerEntity = this.findTimerEntity(devicePrefix, i);
+      if (timerEntity) {
+        const oldTimer = oldHass.states[timerEntity];
+        const newTimer = newHass.states[timerEntity];
+        if (oldTimer?.state !== newTimer?.state) return true;
+      }
     }
     return false;
   }
@@ -150,7 +158,17 @@ class AquaFlowerCard extends HTMLElement {
     const zone = this._zones[zoneNumber - 1];
     if (!zone || !zone.timerEntity) return;
 
-    const newValue = Math.min(Math.max(zone.timer + delta, zone.timerMin), zone.timerMax);
+    // Get current value directly from hass state
+    const timerState = this._hass.states[zone.timerEntity];
+    if (!timerState) return;
+
+    const currentValue = parseFloat(timerState.state) || 0;
+    const minValue = timerState.attributes?.min || 0;
+    const maxValue = timerState.attributes?.max || 60;
+    const step = timerState.attributes?.step || 1;
+
+    const newValue = Math.min(Math.max(currentValue + (delta * step), minValue), maxValue);
+
     this._hass.callService('number', 'set_value', {
       entity_id: zone.timerEntity,
       value: newValue,
@@ -182,6 +200,12 @@ class AquaFlowerCard extends HTMLElement {
           const onPath = 'M19,14C19,15.78 18.23,17.36 17,18.42V20A1,1 0 0,1 16,21H8A1,1 0 0,1 7,20V18.42C5.77,17.36 5,15.78 5,14C5,11.34 7.45,9.45 10.5,8.55V6A1.5,1.5 0 0,1 12,4.5A1.5,1.5 0 0,1 13.5,6V8.55C16.55,9.45 19,11.34 19,14M16,14C16,11.5 13.5,10 12,10C10.5,10 8,11.5 8,14C8,15.71 9.29,17 11,17V18H13V17C14.71,17 16,15.71 16,14Z';
           const offPath = 'M12,4.5A1.5,1.5 0 0,1 13.5,6V8.5A1.5,1.5 0 0,1 12,10A1.5,1.5 0 0,1 10.5,8.5V6A1.5,1.5 0 0,1 12,4.5M17,14C17,16.22 15.46,18.11 13.35,18.73L14.35,20.86L12.71,21.5L11.71,19.37C11.47,19.39 11.24,19.4 11,19.4V21.5H9V19.4C6.17,19.21 4,16.88 4,14C4,11.86 5.28,10.06 7.14,9.14L6.14,7L7.78,6.36L8.78,8.5C9.47,8.33 10.22,8.24 11,8.24V6.12H13V8.24C15.83,8.43 18,10.76 18,13.9L17,14Z';
           iconPath.setAttribute('d', zone.state === 'on' ? onPath : offPath);
+        }
+
+        // Update timer value
+        const timerValue = card.querySelector('.timer-value');
+        if (timerValue) {
+          timerValue.textContent = Math.round(zone.timer);
         }
 
         // Update time
