@@ -160,6 +160,12 @@ class AquaFlowerOnTimeSensor(SensorEntity):
         """Return the state of the sensor."""
         return self._state
 
+    async def async_added_to_hass(self):
+        """Run when entity is added to hass."""
+        await super().async_added_to_hass()
+        # Store hass reference for use in async_update
+        self._hass = self.hass
+
     async def async_update(self):
         """Fetch updated on-time data."""
         url = f"{self._api_base_url}/water-data/{self._user_id}/{self._device_id}"
@@ -168,17 +174,36 @@ class AquaFlowerOnTimeSensor(SensorEntity):
             "Content-Type": "application/json",
         }
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers) as response:
-                    if response.status == 200:
-                        water_data = await response.json()
-                        sensor_entry = next(
-                            (entry for entry in water_data if int(entry.get("zone_id", -1)) == self._zone_number), None
+            session = async_get_clientsession(self.hass)
+            async with session.get(url, headers=headers) as response:
+                if response.status == 200:
+                    water_data = await response.json()
+                    _LOGGER.debug(
+                        "Water data for device %s: %s", self._device_id, water_data
+                    )
+                    sensor_entry = next(
+                        (entry for entry in water_data if int(entry.get("zone_id", -1)) == self._zone_number), None
+                    )
+                    if sensor_entry:
+                        new_state = sensor_entry.get("daily_on_time", 0)
+                        if new_state != self._state:
+                            _LOGGER.debug(
+                                "Zone %s daily on time updated: %s -> %s",
+                                self._zone_number, self._state, new_state
+                            )
+                        self._state = new_state
+                    else:
+                        _LOGGER.warning(
+                            "No data found for zone %s in water-data response",
+                            self._zone_number
                         )
-                        self._state = sensor_entry.get("daily_on_time", 0) if sensor_entry else 0
+                else:
+                    _LOGGER.error(
+                        "Failed to fetch water data for device %s. HTTP Status: %s",
+                        self._device_id, response.status
+                    )
         except Exception as e:
-            _LOGGER.error("Error fetching water data: %s", e)
-            self._state = 0
+            _LOGGER.error("Error fetching water data for zone %s: %s", self._zone_number, e)
 
 
 # 🔹 Schedule Sensor Class (New)
