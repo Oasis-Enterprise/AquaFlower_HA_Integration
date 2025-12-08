@@ -1,4 +1,6 @@
 import logging
+from datetime import timedelta
+
 import aiohttp
 import homeassistant.util.dt as dt_util
 from homeassistant.components.sensor import SensorEntity, SensorDeviceClass, SensorStateClass
@@ -7,6 +9,9 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import DOMAIN
+
+# Poll every 60 seconds for water data updates
+SCAN_INTERVAL = timedelta(seconds=60)
 
 _LOGGER = logging.getLogger(__name__)
 
